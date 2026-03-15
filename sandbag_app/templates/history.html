@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Workout History</title>
+    <style>
+
+        /* Pagination Styles */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            margin-top: 30px;
+            margin-bottom: 50px;
+        }
+        .pagination a {
+            background-color: #007bff;
+            color: white;
+            text-decoration: none;
+            padding: 8px 15px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .pagination a:hover { background-color: #0056b3; }
+        .page-info { font-weight: bold; color: #555; }
+
+
+        body { 
+            font-family: sans-serif; 
+            max-width: 800px; 
+            margin: 2rem auto; 
+            padding: 0 1rem; 
+            background-color: #f8f9fa;
+        }
+        .header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-bottom: 2rem; 
+        }
+        .btn-back { 
+            background-color: #6c757d; 
+            color: white; 
+            text-decoration: none; 
+            padding: 10px 20px; 
+            border-radius: 5px; 
+            font-weight: bold;
+        }
+        .btn-back:hover { background-color: #5a6268; }
+
+        /* Delete Button Styles */
+        .btn-delete {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        .btn-delete:hover { background-color: #c82333; }
+        
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .session-card { 
+            background: white; 
+            padding: 20px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
+            margin-bottom: 20px; 
+            border-left: 6px solid #007bff; 
+        }
+        .session-card.active { border-left-color: #28a745; }
+        
+        /* Fixed CSS Section */
+        .session-header { 
+            display: flex; 
+            justify-content: space-between; 
+            margin-bottom: 15px; 
+            border-bottom: 1px solid #eee; 
+            padding-bottom: 10px;
+        }
+        .session-title { font-size: 1.2rem; font-weight: bold; color: #333; margin: 0; }
+        .session-date { color: #888; font-size: 0.9rem; }
+        
+        .session-stats { display: flex; gap: 15px; }
+        .stat { 
+            background: #f1f1f1; 
+            padding: 10px; 
+            border-radius: 5px; 
+            text-align: center; 
+            flex: 1; 
+        }
+        .stat-value { font-size: 1.5rem; font-weight: bold; color: #333; }
+        .stat-label { font-size: 0.8rem; color: #666; text-transform: uppercase; }
+        
+        .empty-state {
+            text-align: center;
+            padding: 50px;
+            background: white;
+            border-radius: 8px;
+            color: #666;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>📅 Session History</h1>
+        <a href="{% url 'dashboard' %}" class="btn-back">⬅️ Back to Dashboard</a>
+    </div>
+
+    {% for session in page_obj %}
+        <div class="session-card {% if not session.end_time %}active{% endif %}">
+            
+            <div class="session-header">
+                <h2 class="session-title">
+                    Workout Session #{{ forloop.revcounter }}
+                    {% if not session.end_time %} <span style="font-size: 0.9rem; color: #28a745;">(Currently Active)</span>{% endif %}
+                </h2>
+                <div class="header-actions">
+                    <span class="session-date">{{ session.start_time|date:"F j, Y, P" }}</span>
+                    
+                    <form action="{% url 'delete_session' session.id %}" method="POST" onsubmit="return confirm('Are you sure you want to delete this workout? All punch data will be lost.');">
+                        {% csrf_token %}
+                        <button type="submit" class="btn-delete">🗑️ Delete</button>
+                    </form>
+                </div>
+            </div>
+            <div class="session-stats">
+                <div class="stat">
+                    <div class="stat-value">{{ session.total_punches|default:"0" }}</div>
+                    <div class="stat-label">Punches</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">{{ session.max_force|default:"0" }} N</div>
+                    <div class="stat-label">Max Force</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" style="color: #ff6384;">{{ session.favorite_target|default:"None" }}</div>
+                    <div class="stat-label">Top Target</div>
+                </div>
+            </div>
+        </div>
+        
+    {% empty %}
+        <div class="empty-state">
+            <h2>No workouts recorded yet! 🥊</h2>
+            <p>Go back to the dashboard, start a session, and throw some punches to build your history.</p>
+        </div>
+    {% endfor %}
+
+
+    {% if page_obj.has_other_pages %}
+    <div class="pagination">
+        {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}">⬅️ Previous</a>
+        {% endif %}
+
+        <span class="page-info">
+            Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+        </span>
+
+        {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}">Next ➡️</a>
+        {% endif %}
+    </div>
+    {% endif %}
+    
+</body>
+</html>

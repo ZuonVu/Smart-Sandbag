@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bag Settings</title>
+    <style>
+        body { font-family: sans-serif; max-width: 500px; margin: 4rem auto; padding: 20px; background-color: #f8f9fa; }
+        .settings-card { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .form-group { margin-bottom: 20px; }
+        label { font-weight: bold; display: block; margin-bottom: 5px; color: #333; }
+        input { width: 95%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; font-size: 1rem; }
+        .btn-save { background-color: #28a745; color: white; border: none; padding: 12px; border-radius: 5px; cursor: pointer; font-size: 1.1rem; width: 100%; margin-top: 10px; }
+        .btn-cancel { display: block; text-align: center; margin-top: 15px; color: #666; text-decoration: none; }
+    </style>
+</head>
+<body>
+
+    <div class="settings-card">
+        <h2 style="margin-top: 0;">⚙️ Calibration Settings</h2>
+        <p style="color: #666;">Update your bag physics for accurate force tracking.</p>
+        
+        <form method="POST">
+            {% csrf_token %}
+            <div class="form-group">
+                <label>Bag Mass (kg)</label>
+                <input type="number" step="0.1" name="bag_mass" value="{{ profile.bag_mass }}" required>
+            </div>
+            
+            <div class="form-group">
+                <label>Bag Length (meters)</label>
+                <input type="number" step="0.01" name="bag_length" value="{{ profile.bag_length }}" required>
+            </div>
+            
+            <div class="form-group">
+                <label>Chain Length (meters)</label>
+                <input type="number" step="0.01" name="chain_length" value="{{ profile.chain_length }}" required>
+            </div>
+            
+            <button type="submit" class="btn-save">💾 Save Settings</button>
+            <a href="{% url 'dashboard' %}" class="btn-cancel">Cancel</a>
+        </form>
+    </div>
+
+</body>
+</html>

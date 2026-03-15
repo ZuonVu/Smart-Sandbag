@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Smart Sandbag Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
+        th { background-color: #f4f4f4; }
+        h1 { color: #333; }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            text-align: center;
+            border-bottom: 4px solid #ff6384; 
+        }
+        .card h3 { margin: 0 0 10px 0; color: #666; font-size: 0.9rem; text-transform: uppercase; }
+        .card p { margin: 0; font-size: 1.8rem; font-weight: bold; color: #333; }
+        
+        .chart-container { position: relative; height: 120px; width: 100%; display: flex; justify-content: center; }
+    </style>
+</head>
+<body>
+    {% csrf_token %}
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #eee;">
+        <div>
+            <a href="{% url 'history' %}" style="margin-right: 15px; text-decoration: none; color: #007bff; font-weight: bold;">📅 View History</a>
+            <a href="{% url 'settings' %}" style="margin-right: 15px; text-decoration: none; color: #28a745; font-weight: bold;">⚙️ Settings</a>
+
+            <form action="{% url 'logout' %}" method="post" style="display: inline;">
+                {% csrf_token %}
+                <button type="submit" style="background: none; border: none; color: #dc3545; text-decoration: underline; cursor: pointer; font-size: 1rem; padding: 0;">
+                    🚪 Logout ({{ user.username }})
+                </button>
+            </form>
+        </div>
+
+        <div>
+            <button id="startSessionBtn" style="background-color: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 1rem; margin-right: 10px;">
+                ⏱️ Start Session
+            </button>
+            <button id="connectBtn" style="background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 1rem;">
+                🔵 Connect Sandbag
+            </button>
+        </div>
+    </div> 
+
+    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;">
+        <h1 style="margin: 0;">🥊 Smart Sandbag Dashboard</h1>
+    </div>
+    <p style="margin-top: 5px; color: #666;">Tracking your impact and accuracy in real-time.</p>
+    
+    <div class="stats-grid">
+        <div class="card">
+            <h3>Session Time</h3>
+            <p id="timerDisplay">00:00</p>
+        </div>
+        <div class="card">
+            <h3>Total Punches</h3>
+            <p id="punchCountDisplay">{{ stats.total_punches|default:"0" }}</p>
+        </div>
+        <div class="card">
+            <h3>Max Force</h3>
+            <p id="maxForceDisplay">{{ stats.max_force|default:"0" }} N</p>
+        </div>
+        <div class="card" style="border-bottom-color: #36a2eb;">
+            <h3>Shot Distribution</h3>
+            <div class="chart-container">
+                <canvas id="distributionChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div style="width: 100%; max-width: 800px; margin: 20px auto;">
+        <canvas id="forceChart"></canvas>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Time Recorded</th>
+                <th>Force (N)</th>
+                <th>Location</th>
+            </tr>
+        </thead>
+        <tbody id="punchTableBody">
+            </tbody>
+    </table>
+
+    <script>
+        // --- GLOBALS & UI ELEMENTS ---
+        const connectButton = document.getElementById('connectBtn');
+        const startSessionBtn = document.getElementById('startSessionBtn');
+        
+        const punchCountDisplay = document.getElementById('punchCountDisplay');
+        const maxForceDisplay = document.getElementById('maxForceDisplay');
+        const timerDisplay = document.getElementById('timerDisplay');
+        
+        // --- STATE VARIABLES ---
+        let currentX = 0, currentY = 0, currentZ = 0;
+        let isPunching = false;
+        
+        let sessionActive = false;
+        let timerInterval = null;
+        let secondsElapsed = 0;
+        
+        let punchCount = 0;
+        let maxForce = 0;
+        
+        // Array to track punches per target [Target 1, Target 2, ... Target 6]
+        let targetCounts = [0, 0, 0, 0, 0, 0];
+        let latestMicPeaks = [0, 0, 0, 0, 0, 0];
+
+        // --- PHYSICS CONSTANTS ---
+        const BAG_MASS_KG = parseFloat("{{ profile.bag_mass|default:'30.0' }}");       
+        const CHAIN_LENGTH_M = parseFloat("{{ profile.chain_length|default:'0.5' }}");     
+        const BAG_LENGTH_M = parseFloat("{{ profile.bag_length|default:'1.0' }}");       
+
+        let MIC_DISTANCES_M = [];
+        const segment = BAG_LENGTH_M / 7.0;
+        for (let i = 1; i <= 6; i++) {
+            MIC_DISTANCES_M.push(segment * i);
+        }
+
+        const term1 = Math.pow(BAG_LENGTH_M, 2) / 12.0;
+        const term2 = Math.pow(CHAIN_LENGTH_M + (BAG_LENGTH_M / 2.0), 2);
+        const MOMENT_OF_INERTIA = BAG_MASS_KG * (term1 + term2);
+
+        // --- CHART SETUP ---
+        const forceCtx = document.getElementById('forceChart');
+        const forceChart = new Chart(forceCtx, {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'Punch Force (N)', data: [], borderWidth: 2, borderColor: '#ff6384', backgroundColor: '#ff6384', tension: 0.1 }] },
+            options: { scales: { y: { beginAtZero: true } } }
+        });
+
+        // NEW: Distribution Chart Setup
+        const distCtx = document.getElementById('distributionChart');
+        const distributionChart = new Chart(distCtx, {
+            type: 'doughnut', 
+            data: {
+                labels: ['Target 1', 'Target 2', 'Target 3', 'Target 4', 'Target 5', 'Target 6'],
+                datasets: [{
+                    data: targetCounts,
+                    backgroundColor: [
+                        '#ff6384', // Red
+                        '#ff9f40', // Orange
+                        '#ffcd56', // Yellow
+                        '#4bc0c0', // Teal
+                        '#36a2eb', // Blue
+                        '#9966ff'  // Purple
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false } // Hide legend to fit in the small card
+                }
+            }
+        });
+
+        // --- BLUETOOTH LOGIC ---
+        const SERVICE_UUID = "19b10000-e8f2-537e-4f6c-d104768a1214"; 
+        const CHAR_X_UUID = "19b10001-e8f2-537e-4f6c-d104768a1214";
+        const CHAR_Y_UUID = "19b10002-e8f2-537e-4f6c-d104768a1214";
+        const CHAR_Z_UUID = "19b10003-e8f2-537e-4f6c-d104768a1214";
+        const CHAR_MIC_UUID = "19b10004-e8f2-537e-4f6c-d104768a1214";
+
+        connectButton.addEventListener('click', async function() {
+            try {
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: 'Sandbag' }],
+                    optionalServices: [SERVICE_UUID] 
+                });
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                
+                await setupNotification(await service.getCharacteristic(CHAR_X_UUID), 'X');
+                await setupNotification(await service.getCharacteristic(CHAR_Y_UUID), 'Y');
+                await setupNotification(await service.getCharacteristic(CHAR_Z_UUID), 'Z');
+
+                const micChar = await service.getCharacteristic(CHAR_MIC_UUID);
+                await micChar.startNotifications();
+                micChar.addEventListener('characteristicvaluechanged', (event) => {
+                    let dataView = event.target.value;
+                    for (let i = 0; i < 6; i++) {
+                        latestMicPeaks[i] = dataView.getInt16(i * 2, true); 
+                    }
+                });
+
+                connectButton.innerText = "🟢 Connected!";
+                connectButton.style.backgroundColor = "green";
+            } catch (error) { console.error("Connection failed!", error); }
+        });
+
+        async function setupNotification(characteristic, axisLabel) {
+            await characteristic.startNotifications();
+            characteristic.addEventListener('characteristicvaluechanged', (event) => {
+                const rawInt = event.target.value.getInt32(0, true);
+                const realAccel = rawInt / 100.0;
+
+                if (axisLabel === 'X') currentX = realAccel;
+                if (axisLabel === 'Y') currentY = realAccel;
+                if (axisLabel === 'Z') currentZ = realAccel;
+
+                let totalG = Math.sqrt(currentX**2 + currentY**2 + currentZ**2);
+
+                if (totalG > 2.5 && !isPunching) {
+                    isPunching = true; 
+                    
+                    let maxVol = 0;
+                    let loudestIndex = 2; // default
+
+                    for (let i = 0; i < 6; i++) {
+                        if (latestMicPeaks[i] > maxVol) {
+                            maxVol = latestMicPeaks[i];
+                            loudestIndex = i;
+                        }
+                    }
+                    
+                    // Specific Target Zone Mapping
+                    let targetZone = `Target ${loudestIndex + 1}`;
+                    let hitDistanceY = MIC_DISTANCES_M[loudestIndex]; 
+                    
+                    registerPunch(totalG, hitDistanceY, targetZone, loudestIndex);
+                    setTimeout(() => { isPunching = false; }, 500);
+                }
+            });
+        }
+
+        function registerPunch(gForce, hitDistanceY, targetZone, index) {
+            let accel_ms2 = gForce * 9.81;
+            let r_punch = CHAIN_LENGTH_M + hitDistanceY; 
+            
+            // Updated Math Logic: Ensured denominator is grouped correctly
+            let calculatedForce = (accel_ms2 * MOMENT_OF_INERTIA) / (r_punch * CHAIN_LENGTH_M);
+            let finalForce = Math.round(calculatedForce);
+            
+            // Update UI Counters
+            punchCount++;
+            punchCountDisplay.innerText = punchCount;
+
+            if (finalForce > maxForce) {
+                maxForce = finalForce;
+                maxForceDisplay.innerText = `${maxForce} N`;
+            }
+
+            // Update Target Distribution Chart
+            targetCounts[index]++;
+            distributionChart.update();
+
+            // Line Chart Update
+            let timeNow = new Date().toLocaleTimeString();
+            forceChart.data.labels.push(timeNow);
+            forceChart.data.datasets[0].data.push(finalForce);
+            if (forceChart.data.labels.length > 10) {
+                forceChart.data.labels.shift();
+                forceChart.data.datasets[0].data.shift();
+            }
+            forceChart.update(); 
+
+            // Add to Table
+            const tbody = document.getElementById('punchTableBody');
+            const newRow = `<tr><td>${timeNow}</td><td>${finalForce} N</td><td><b>${targetZone}</b></td></tr>`;
+            tbody.insertAdjacentHTML('afterbegin', newRow);
+
+            // Save to Django
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+            fetch('/record/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify({ force: finalForce, location: targetZone }) // Sends "Target 1", "Target 2", etc.
+            }).catch(error => console.error("❌ Failed to save:", error));
+        }
+
+        // --- TIMER & SESSION LOGIC ---
+        startSessionBtn.addEventListener('click', () => {
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+            if (!sessionActive) {
+                fetch('/start_session/', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if(data.status === "success") {
+                        sessionActive = true;
+                        startSessionBtn.innerText = "🛑 End Session";
+                        startSessionBtn.style.backgroundColor = "#dc3545"; 
+                        
+                        // Reset all metrics
+                        secondsElapsed = 0;
+                        punchCount = 0;
+                        maxForce = 0;
+                        punchCountDisplay.innerText = "0";
+                        maxForceDisplay.innerText = "0 N";
+                        timerDisplay.innerText = "00:00";
+                        
+                        // Reset Charts
+                        forceChart.data.labels = [];
+                        forceChart.data.datasets[0].data = [];
+                        forceChart.update();
+
+                        targetCounts.fill(0); // Reset Target 1-6 array to zeros
+                        distributionChart.update();
+
+                        document.getElementById('punchTableBody').innerHTML = ''; // Clear table
+
+                        timerInterval = setInterval(() => {
+                            secondsElapsed++;
+                            let m = Math.floor(secondsElapsed / 60).toString().padStart(2, '0');
+                            let s = (secondsElapsed % 60).toString().padStart(2, '0');
+                            timerDisplay.innerText = `${m}:${s}`;
+                        }, 1000);
+                    }
+                }).catch(err => console.error("❌ Error starting session:", err));
+
+            } else {
+                fetch('/end_session/', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if(data.status === "success") {
+                        sessionActive = false;
+                        clearInterval(timerInterval);
+                        startSessionBtn.innerText = "⏱️ Start Session";
+                        startSessionBtn.style.backgroundColor = "#28a745"; 
+                    }
+                }).catch(err => console.error("❌ Error ending session:", err));
+            }
+        });
+    </script>
+</body>
+</html>
