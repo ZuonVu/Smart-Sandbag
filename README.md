@@ -11,7 +11,7 @@
    - MacLinux `source venvbinactivate`
 5. Install the required packages
    `pip install -r requirements.txt`
-6. Apply database migrations (since `db.sqlite3` is ignored)
+6. Apply database migrations 
    `python manage.py migrate`
 7. Start the server
    `python manage.py runserver`
