@@ -28,6 +28,8 @@
         .card p { margin: 0; font-size: 1.8rem; font-weight: bold; color: #333; }
         
         .chart-container { position: relative; height: 120px; width: 100%; display: flex; justify-content: center; }
+        
+        .header-controls { display: flex; align-items: center; gap: 15px; }
     </style>
 </head>
 <body>
@@ -46,8 +48,12 @@
             </form>
         </div>
 
-        <div>
-            <button id="startSessionBtn" style="background-color: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 1rem; margin-right: 10px;">
+        <div class="header-controls">
+            <div id="battery-status" style="font-weight: bold; color: #28a745; font-size: 1.1rem;">
+                🔋 <span id="battery-percent">--</span>%
+            </div>
+            
+            <button id="startSessionBtn" style="background-color: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 1rem;">
                 ⏱️ Start Session
             </button>
             <button id="connectBtn" style="background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 1rem;">
@@ -95,7 +101,7 @@
             </tr>
         </thead>
         <tbody id="punchTableBody">
-            </tbody>
+        </tbody>
     </table>
 
     <script>
@@ -118,20 +124,14 @@
         let punchCount = 0;
         let maxForce = 0;
         
-        // Array to track punches per target [Target 1, Target 2, ... Target 6]
-        let targetCounts = [0, 0, 0, 0, 0, 0];
-        let latestMicPeaks = [0, 0, 0, 0, 0, 0];
+        // UPDATED: Now tracks [High Punch, Center Punch, Low Punch]
+        let targetCounts = [0, 0, 0];
+        let latestMicPeaks = [0, 0]; // Index 0 = Top Mic, Index 1 = Bottom Mic
 
         // --- PHYSICS CONSTANTS ---
         const BAG_MASS_KG = parseFloat("{{ profile.bag_mass|default:'30.0' }}");       
         const CHAIN_LENGTH_M = parseFloat("{{ profile.chain_length|default:'0.5' }}");     
         const BAG_LENGTH_M = parseFloat("{{ profile.bag_length|default:'1.0' }}");       
-
-        let MIC_DISTANCES_M = [];
-        const segment = BAG_LENGTH_M / 7.0;
-        for (let i = 1; i <= 6; i++) {
-            MIC_DISTANCES_M.push(segment * i);
-        }
 
         const term1 = Math.pow(BAG_LENGTH_M, 2) / 12.0;
         const term2 = Math.pow(CHAIN_LENGTH_M + (BAG_LENGTH_M / 2.0), 2);
@@ -145,31 +145,22 @@
             options: { scales: { y: { beginAtZero: true } } }
         });
 
-        // NEW: Distribution Chart Setup
+        // UPDATED: Distribution Chart to support 3 dynamic zones
         const distCtx = document.getElementById('distributionChart');
         const distributionChart = new Chart(distCtx, {
             type: 'doughnut', 
             data: {
-                labels: ['Target 1', 'Target 2', 'Target 3', 'Target 4', 'Target 5', 'Target 6'],
+                labels: ['High Punch', 'Center Punch', 'Low Punch'],
                 datasets: [{
                     data: targetCounts,
-                    backgroundColor: [
-                        '#ff6384', // Red
-                        '#ff9f40', // Orange
-                        '#ffcd56', // Yellow
-                        '#4bc0c0', // Teal
-                        '#36a2eb', // Blue
-                        '#9966ff'  // Purple
-                    ],
+                    backgroundColor: ['#ff6384', '#36a2eb', '#ffce56'],
                     borderWidth: 1
                 }]
             },
             options: { 
                 responsive: true, 
                 maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false } // Hide legend to fit in the small card
-                }
+                plugins: { legend: { display: false } } 
             }
         });
 
@@ -179,14 +170,21 @@
         const CHAR_Y_UUID = "19b10002-e8f2-537e-4f6c-d104768a1214";
         const CHAR_Z_UUID = "19b10003-e8f2-537e-4f6c-d104768a1214";
         const CHAR_MIC_UUID = "19b10004-e8f2-537e-4f6c-d104768a1214";
+        
+        // Standard BLE Battery Service
+        const BATTERY_SERVICE_UUID = 0x180f; 
+        const BATTERY_LEVEL_CHAR_UUID = 0x2a19; 
 
         connectButton.addEventListener('click', async function() {
             try {
                 const device = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'Sandbag' }],
-                    optionalServices: [SERVICE_UUID] 
+                    // Make sure we request permission for the battery service!
+                    optionalServices: [SERVICE_UUID, BATTERY_SERVICE_UUID] 
                 });
                 const server = await device.gatt.connect();
+                
+                // --- 1. CONNECT IMU & MICS ---
                 const service = await server.getPrimaryService(SERVICE_UUID);
                 
                 await setupNotification(await service.getCharacteristic(CHAR_X_UUID), 'X');
@@ -197,10 +195,31 @@
                 await micChar.startNotifications();
                 micChar.addEventListener('characteristicvaluechanged', (event) => {
                     let dataView = event.target.value;
-                    for (let i = 0; i < 6; i++) {
-                        latestMicPeaks[i] = dataView.getInt16(i * 2, true); 
-                    }
+                    // Read the 4 bytes (2 integers) from the new 2-Mic array
+                    latestMicPeaks[0] = dataView.getInt16(0, true); // Top Mic
+                    latestMicPeaks[1] = dataView.getInt16(2, true); // Bottom Mic
                 });
+                
+                // --- 2. CONNECT BATTERY SERVICE ---
+                try {
+                    const batteryService = await server.getPrimaryService(BATTERY_SERVICE_UUID);
+                    const batteryChar = await batteryService.getCharacteristic(BATTERY_LEVEL_CHAR_UUID);
+                    
+                    await batteryChar.startNotifications();
+                    batteryChar.addEventListener('characteristicvaluechanged', (event) => {
+                        let pct = event.target.value.getUint8(0);
+                        document.getElementById('battery-percent').innerText = pct;
+                        
+                        // Turn battery text red if low
+                        if (pct <= 20) {
+                            document.getElementById('battery-status').style.color = '#dc3545';
+                        } else {
+                            document.getElementById('battery-status').style.color = '#28a745';
+                        }
+                    });
+                } catch (e) {
+                    console.log("Battery service not found on device.", e);
+                }
 
                 connectButton.innerText = "🟢 Connected!";
                 connectButton.style.backgroundColor = "green";
@@ -222,35 +241,49 @@
                 if (totalG > 2.5 && !isPunching) {
                     isPunching = true; 
                     
-                    let maxVol = 0;
-                    let loudestIndex = 2; // default
+                    // --- UPDATED 2-MIC LOGIC ---
 
-                    for (let i = 0; i < 6; i++) {
-                        if (latestMicPeaks[i] > maxVol) {
-                            maxVol = latestMicPeaks[i];
-                            loudestIndex = i;
-                        }
+                    let targetZone = "Center Punch";
+                    let chartIndex = 1; // 0=High, 1=Center, 2=Low
+                    let hitDistanceY = BAG_LENGTH_M / 2.0; // Default to center
+                    
+                    let topMic = latestMicPeaks[0];
+                    let bottomMic = latestMicPeaks[1];
+
+                    // Print the exact numbers to your browser's developer console!
+                    console.log(`Punch! Top Mic: ${topMic} | Bottom Mic: ${bottomMic}`);
+
+                    if (topMic === 0 && bottomMic === 0) {
+                        // The mics didn't hear anything over the threshold
+                        targetZone = "Center Punch (Mics Silent)";
+                        chartIndex = 1;
+                    } else if (Math.abs(topMic - bottomMic) < 5) { // To be decided and tuned based on real-world testing - accounts for minor variations in mic readings
+                        // Mics heard the hit equally, meaning you hit the middle!
+                        targetZone = "Center Punch";
+                        chartIndex = 1;
+                    } else if (topMic > bottomMic) {
+                        targetZone = "High Punch";
+                        chartIndex = 0;
+                        hitDistanceY = BAG_LENGTH_M * 0.25; 
+                    } else if (bottomMic > topMic) {
+                        targetZone = "Low Punch";
+                        chartIndex = 2;
+                        hitDistanceY = BAG_LENGTH_M * 0.75; 
                     }
                     
-                    // Specific Target Zone Mapping
-                    let targetZone = `Target ${loudestIndex + 1}`;
-                    let hitDistanceY = MIC_DISTANCES_M[loudestIndex]; 
-                    
-                    registerPunch(totalG, hitDistanceY, targetZone, loudestIndex);
+                    registerPunch(totalG, hitDistanceY, targetZone, chartIndex);
                     setTimeout(() => { isPunching = false; }, 500);
                 }
             });
         }
 
-        function registerPunch(gForce, hitDistanceY, targetZone, index) {
+        function registerPunch(gForce, hitDistanceY, targetZone, chartIndex) {
             let accel_ms2 = gForce * 9.81;
             let r_punch = CHAIN_LENGTH_M + hitDistanceY; 
             
-            // Updated Math Logic: Ensured denominator is grouped correctly
             let calculatedForce = (accel_ms2 * MOMENT_OF_INERTIA) / (r_punch * CHAIN_LENGTH_M);
             let finalForce = Math.round(calculatedForce);
             
-            // Update UI Counters
             punchCount++;
             punchCountDisplay.innerText = punchCount;
 
@@ -260,7 +293,7 @@
             }
 
             // Update Target Distribution Chart
-            targetCounts[index]++;
+            targetCounts[chartIndex]++;
             distributionChart.update();
 
             // Line Chart Update
@@ -283,7 +316,7 @@
             fetch('/record/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-                body: JSON.stringify({ force: finalForce, location: targetZone }) // Sends "Target 1", "Target 2", etc.
+                body: JSON.stringify({ force: finalForce, location: targetZone })
             }).catch(error => console.error("❌ Failed to save:", error));
         }
 
@@ -316,10 +349,10 @@
                         forceChart.data.datasets[0].data = [];
                         forceChart.update();
 
-                        targetCounts.fill(0); // Reset Target 1-6 array to zeros
+                        targetCounts.fill(0); 
                         distributionChart.update();
 
-                        document.getElementById('punchTableBody').innerHTML = ''; // Clear table
+                        document.getElementById('punchTableBody').innerHTML = '';
 
                         timerInterval = setInterval(() => {
                             secondsElapsed++;
