@@ -92,17 +92,24 @@ void loop() {
       int z = (int)(myIMU.readFloatAccelZ() * 100);
       zChar.writeValue(z);   
 
-      // 2. Read the 2 microphones with NOISE GATE
-      int16_t micValues[2]; 
-      for (int i = 0; i < 2; i++) {
-        int rawReading = analogRead(micPins[i]);
-        
-        if (rawReading > NOISE_THRESHOLD) {
-            micValues[i] = rawReading; // Real hit
-        } else {
-            micValues[i] = 0;          // Background static
-        }
+      // 2. Read the 2 microphones with Peak detection to avoid catching the swing of the sandbag
+      int topPeak = 0;
+      int bottomPeak = 0;
+
+      // Every 20 miliseconds, the XIAO will listen continuously for 5 milliseconds to catch the peak of the soundwave
+      for (int j = 0; j < 25; j++) {
+        int t = analogRead(micPins[0]);
+        if (t > topPeak) topPeak = t;
+
+        int b = analogRead(micPins[1]);
+        if (b > bottomPeak) bottom Peak = b;
+
+        delayMicroseconds(200);
       }
+    
+      int16_t micValues[2]; 
+      micValues[0] = (topPeak > NOISE_THRESHOLD) ? topPeak : 0;
+      micValues[1] = (bottomPeak > NOISE_THRESHOLD) ? bottomPeak : 0;
 
       // Pack and send Mic Array
       micArrayChar.writeValue((byte*)micValues, sizeof(micValues));
@@ -115,14 +122,14 @@ void loop() {
         Serial.print("Raw Battery Number: ");
         Serial.println(vbatRaw);
         // Map raw ADC values roughly to 0-100% 
-        // (You may need to tweak 600 and 850 based on your specific lipo battery capacity)
-        int batteryPercentage = map(vbatRaw, 330, 430, 0, 100);
+        // (You may need to tweak 250 and 430 based on your specific lipo battery capacity)
+        int batteryPercentage = map(vbatRaw, 250, 430, 0, 100);
         batteryPercentage = constrain(batteryPercentage, 0, 100);
         
         batteryLevelChar.writeValue((uint8_t)batteryPercentage);
       }
 
-      delay(50); // Send action data 20 times per second
+      delay(15); // Send action data 20 times per second
     }
     
     digitalWrite(LED_BUILTIN, HIGH); 
