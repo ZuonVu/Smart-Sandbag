@@ -12,20 +12,21 @@
         
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 20px;
+            /* CHANGED: Now repeats 5 times to fit the new Current Force card */
+            grid-template-columns: repeat(5, 1fr); 
+            gap: 15px; /* slightly reduced gap to fit 5 cards nicely */
             margin-bottom: 30px;
         }
         .card {
             background: #fff;
-            padding: 20px;
+            padding: 15px; /* slightly reduced padding to fit 5 cards */
             border-radius: 8px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
             text-align: center;
             border-bottom: 4px solid #ff6384; 
         }
-        .card h3 { margin: 0 0 10px 0; color: #666; font-size: 0.9rem; text-transform: uppercase; }
-        .card p { margin: 0; font-size: 1.8rem; font-weight: bold; color: #333; }
+        .card h3 { margin: 0 0 10px 0; color: #666; font-size: 0.85rem; text-transform: uppercase; }
+        .card p { margin: 0; font-size: 1.6rem; font-weight: bold; color: #333; }
         
         .chart-container { position: relative; height: 120px; width: 100%; display: flex; justify-content: center; }
         
@@ -76,6 +77,10 @@
             <h3>Total Punches</h3>
             <p id="punchCountDisplay">{{ stats.total_punches|default:"0" }}</p>
         </div>
+        <div class="card" style="border-bottom-color: #ff9f40;">
+            <h3>Current Force</h3>
+            <p id="currentForceDisplay">0 N</p>
+        </div>
         <div class="card">
             <h3>Max Force</h3>
             <p id="maxForceDisplay">{{ stats.max_force|default:"0" }} N</p>
@@ -108,8 +113,9 @@
         const startSessionBtn = document.getElementById('startSessionBtn');
         
         const punchCountDisplay = document.getElementById('punchCountDisplay');
+        const currentForceDisplay = document.getElementById('currentForceDisplay'); // NEW: Current Force UI
         const maxForceDisplay = document.getElementById('maxForceDisplay');
-        const avgForceDisplay = document.getElementById('avgForceDisplay'); // NEW: Reference to UI element
+        const avgForceDisplay = document.getElementById('avgForceDisplay');
         const timerDisplay = document.getElementById('timerDisplay');
         
         // --- STATE VARIABLES ---
@@ -122,10 +128,10 @@
         
         let punchCount = 0;
         let maxForce = 0;
-        let totalForceSum = 0; // NEW: Track cumulative force for the average calculation
+        let totalForceSum = 0; 
         
         let targetCounts = [0, 0, 0];
-        let latestMicPeaks = [0, 0]; // Index 0 = Top Mic, Index 1 = Bottom Mic
+        let latestMicPeaks = [0, 0]; 
 
         // --- PHYSICS CONSTANTS ---
         const BAG_MASS_KG = parseFloat("{{ profile.bag_mass|default:'30.0' }}");       
@@ -159,7 +165,6 @@
             try {
                 const device = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'Sandbag' }],
-                    // Make sure we request permission for the battery service!
                     optionalServices: [SERVICE_UUID, BATTERY_SERVICE_UUID] 
                 });
                 const server = await device.gatt.connect();
@@ -175,9 +180,8 @@
                 await micChar.startNotifications();
                 micChar.addEventListener('characteristicvaluechanged', (event) => {
                     let dataView = event.target.value;
-                    // Read the 4 bytes (2 integers) from the new 2-Mic array
-                    latestMicPeaks[0] = dataView.getInt16(0, true); // Top Mic
-                    latestMicPeaks[1] = dataView.getInt16(2, true); // Bottom Mic
+                    latestMicPeaks[0] = dataView.getInt16(0, true); 
+                    latestMicPeaks[1] = dataView.getInt16(2, true); 
                 });
                 
                 // --- 2. CONNECT BATTERY SERVICE ---
@@ -190,7 +194,6 @@
                         let pct = event.target.value.getUint8(0);
                         document.getElementById('battery-percent').innerText = pct;
                         
-                        // Turn battery text red if low
                         if (pct <= 20) {
                             document.getElementById('battery-status').style.color = '#dc3545';
                         } else {
@@ -219,23 +222,18 @@
                 let totalG = Math.sqrt(currentX**2 + currentY**2 + currentZ**2);
                 
                 let topMic = latestMicPeaks[0];
-                let bottomMic = latestMicPeaks[1] ; // Keeping your gain multiplier
+                let bottomMic = latestMicPeaks[1] ; 
 
-                // 2. Require BOTH a G-force spike AND a loud sound (> 50)
                 if (totalG > 1.6 && !isPunching && (topMic > 100 || bottomMic > 100)) {
                     isPunching = true; 
                     
-                    // --- UPDATED 2-MIC LOGIC ---
                     let targetZone = "Center Punch";
-                    let chartIndex = 1; // 0=High, 1=Center, 2=Low
-                    let hitDistanceY = BAG_LENGTH_M / 2.0; // Default to center
+                    let chartIndex = 1; 
+                    let hitDistanceY = BAG_LENGTH_M / 2.0; 
                     
-                    // Print the exact numbers to your browser's developer console!
                     console.log(`Punch! Top Mic: ${topMic} | Bottom Mic: ${bottomMic}`);
 
-                    // 3. Determine Location
                     if (Math.abs(topMic - bottomMic) <= 1) { 
-                        // Mics heard the hit roughly equally, meaning you hit the middle!
                         targetZone = "Center Punch";
                         chartIndex = 1;
                     } else if (topMic > bottomMic) {
@@ -250,8 +248,7 @@
                     
                     registerPunch(totalG, hitDistanceY, targetZone, chartIndex);
                     
-                    // 4. Reset the punch lock after 700ms
-                    setTimeout(() => { isPunching = false; }, 700); // should be adjusted based on the punch speed. Mention the users to punch slowly one by one
+                    setTimeout(() => { isPunching = false; }, 700); 
                 }
             });
         }
@@ -261,16 +258,15 @@
             let r_punch = CHAIN_LENGTH_M + hitDistanceY; 
             
             let calculatedForce = (accel_ms2 * MOMENT_OF_INERTIA) / (r_punch * CHAIN_LENGTH_M);
-
-            // --- NEW: CALIBRATION FACTOR ---
             const FORCE_CALIBRATION_FACTOR = 0.35;
-
             let finalForce = Math.round(calculatedForce * FORCE_CALIBRATION_FACTOR);
             
             punchCount++;
             punchCountDisplay.innerText = punchCount;
 
-            // NEW: Update Average Force Calculation
+            // NEW: Update Current Force display instantly
+            currentForceDisplay.innerText = `${finalForce} N`;
+
             totalForceSum += finalForce;
             let avgForce = Math.round(totalForceSum / punchCount);
             avgForceDisplay.innerText = `${avgForce} N`;
@@ -280,10 +276,8 @@
                 maxForceDisplay.innerText = `${maxForce} N`;
             }
 
-            // Update Target Distribution Tracker (Even without chart, useful for backend logging)
             targetCounts[chartIndex]++;
 
-            // Line Chart Update
             let timeNow = new Date().toLocaleTimeString();
             forceChart.data.labels.push(timeNow);
             forceChart.data.datasets[0].data.push(finalForce);
@@ -293,12 +287,10 @@
             }
             forceChart.update(); 
 
-            // Add to Table
             const tbody = document.getElementById('punchTableBody');
             const newRow = `<tr><td>${timeNow}</td><td>${finalForce} N</td><td><b>${targetZone}</b></td></tr>`;
             tbody.insertAdjacentHTML('afterbegin', newRow);
 
-            // Save to Django
             const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
             fetch('/record/', {
                 method: 'POST',
@@ -323,18 +315,17 @@
                         startSessionBtn.innerText = "🛑 End Session";
                         startSessionBtn.style.backgroundColor = "#dc3545"; 
                         
-                        // Reset all metrics
                         secondsElapsed = 0;
                         punchCount = 0;
                         maxForce = 0;
-                        totalForceSum = 0; // NEW: Reset the total force sum
+                        totalForceSum = 0; 
 
                         punchCountDisplay.innerText = "0";
+                        currentForceDisplay.innerText = "0 N"; // NEW: Reset Current Force
                         maxForceDisplay.innerText = "0 N";
-                        avgForceDisplay.innerText = "0 N"; // NEW: Reset UI average
+                        avgForceDisplay.innerText = "0 N"; 
                         timerDisplay.innerText = "00:00";
                         
-                        // Reset Charts
                         forceChart.data.labels = [];
                         forceChart.data.datasets[0].data = [];
                         forceChart.update();
