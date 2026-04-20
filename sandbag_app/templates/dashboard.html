@@ -81,10 +81,8 @@
             <p id="maxForceDisplay">{{ stats.max_force|default:"0" }} N</p>
         </div>
         <div class="card" style="border-bottom-color: #36a2eb;">
-            <h3>Shot Distribution</h3>
-            <div class="chart-container">
-                <canvas id="distributionChart"></canvas>
-            </div>
+            <h3>Avg Force</h3>
+            <p id="avgForceDisplay">0 N</p>
         </div>
     </div>
 
@@ -111,6 +109,7 @@
         
         const punchCountDisplay = document.getElementById('punchCountDisplay');
         const maxForceDisplay = document.getElementById('maxForceDisplay');
+        const avgForceDisplay = document.getElementById('avgForceDisplay'); // NEW: Reference to UI element
         const timerDisplay = document.getElementById('timerDisplay');
         
         // --- STATE VARIABLES ---
@@ -123,8 +122,8 @@
         
         let punchCount = 0;
         let maxForce = 0;
+        let totalForceSum = 0; // NEW: Track cumulative force for the average calculation
         
-        // UPDATED: Now tracks [High Punch, Center Punch, Low Punch]
         let targetCounts = [0, 0, 0];
         let latestMicPeaks = [0, 0]; // Index 0 = Top Mic, Index 1 = Bottom Mic
 
@@ -143,25 +142,6 @@
             type: 'line',
             data: { labels: [], datasets: [{ label: 'Punch Force (N)', data: [], borderWidth: 2, borderColor: '#ff6384', backgroundColor: '#ff6384', tension: 0.1 }] },
             options: { scales: { y: { beginAtZero: true } } }
-        });
-
-        // UPDATED: Distribution Chart to support 3 dynamic zones
-        const distCtx = document.getElementById('distributionChart');
-        const distributionChart = new Chart(distCtx, {
-            type: 'doughnut', 
-            data: {
-                labels: ['High Punch', 'Center Punch', 'Low Punch'],
-                datasets: [{
-                    data: targetCounts,
-                    backgroundColor: ['#ff6384', '#36a2eb', '#ffce56'],
-                    borderWidth: 1
-                }]
-            },
-            options: { 
-                responsive: true, 
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } } 
-            }
         });
 
         // --- BLUETOOTH LOGIC ---
@@ -231,34 +211,31 @@
             characteristic.addEventListener('characteristicvaluechanged', (event) => {
                 const rawInt = event.target.value.getInt32(0, true);
                 const realAccel = rawInt / 100.0;
-
+ 
                 if (axisLabel === 'X') currentX = realAccel;
                 if (axisLabel === 'Y') currentY = realAccel;
                 if (axisLabel === 'Z') currentZ = realAccel;
 
                 let totalG = Math.sqrt(currentX**2 + currentY**2 + currentZ**2);
+                
+                let topMic = latestMicPeaks[0];
+                let bottomMic = latestMicPeaks[1] ; // Keeping your gain multiplier
 
-                if (totalG > 2.5 && !isPunching) {
+                // 2. Require BOTH a G-force spike AND a loud sound (> 50)
+                if (totalG > 1.6 && !isPunching && (topMic > 100 || bottomMic > 100)) {
                     isPunching = true; 
                     
                     // --- UPDATED 2-MIC LOGIC ---
-
                     let targetZone = "Center Punch";
                     let chartIndex = 1; // 0=High, 1=Center, 2=Low
                     let hitDistanceY = BAG_LENGTH_M / 2.0; // Default to center
                     
-                    let topMic = latestMicPeaks[0];
-                    let bottomMic = latestMicPeaks[1];
-
                     // Print the exact numbers to your browser's developer console!
                     console.log(`Punch! Top Mic: ${topMic} | Bottom Mic: ${bottomMic}`);
 
-                    if (topMic === 0 && bottomMic === 0) {
-                        // The mics didn't hear anything over the threshold
-                        targetZone = "Center Punch (Mics Silent)";
-                        chartIndex = 1;
-                    } else if (Math.abs(topMic - bottomMic) < 5) { // To be decided and tuned based on real-world testing - accounts for minor variations in mic readings
-                        // Mics heard the hit equally, meaning you hit the middle!
+                    // 3. Determine Location
+                    if (Math.abs(topMic - bottomMic) <= 1) { 
+                        // Mics heard the hit roughly equally, meaning you hit the middle!
                         targetZone = "Center Punch";
                         chartIndex = 1;
                     } else if (topMic > bottomMic) {
@@ -272,7 +249,9 @@
                     }
                     
                     registerPunch(totalG, hitDistanceY, targetZone, chartIndex);
-                    setTimeout(() => { isPunching = false; }, 500);
+                    
+                    // 4. Reset the punch lock after 700ms
+                    setTimeout(() => { isPunching = false; }, 700); // should be adjusted based on the punch speed. Mention the users to punch slowly one by one
                 }
             });
         }
@@ -282,19 +261,27 @@
             let r_punch = CHAIN_LENGTH_M + hitDistanceY; 
             
             let calculatedForce = (accel_ms2 * MOMENT_OF_INERTIA) / (r_punch * CHAIN_LENGTH_M);
-            let finalForce = Math.round(calculatedForce);
+
+            // --- NEW: CALIBRATION FACTOR ---
+            const FORCE_CALIBRATION_FACTOR = 0.35;
+
+            let finalForce = Math.round(calculatedForce * FORCE_CALIBRATION_FACTOR);
             
             punchCount++;
             punchCountDisplay.innerText = punchCount;
+
+            // NEW: Update Average Force Calculation
+            totalForceSum += finalForce;
+            let avgForce = Math.round(totalForceSum / punchCount);
+            avgForceDisplay.innerText = `${avgForce} N`;
 
             if (finalForce > maxForce) {
                 maxForce = finalForce;
                 maxForceDisplay.innerText = `${maxForce} N`;
             }
 
-            // Update Target Distribution Chart
+            // Update Target Distribution Tracker (Even without chart, useful for backend logging)
             targetCounts[chartIndex]++;
-            distributionChart.update();
 
             // Line Chart Update
             let timeNow = new Date().toLocaleTimeString();
@@ -340,8 +327,11 @@
                         secondsElapsed = 0;
                         punchCount = 0;
                         maxForce = 0;
+                        totalForceSum = 0; // NEW: Reset the total force sum
+
                         punchCountDisplay.innerText = "0";
                         maxForceDisplay.innerText = "0 N";
+                        avgForceDisplay.innerText = "0 N"; // NEW: Reset UI average
                         timerDisplay.innerText = "00:00";
                         
                         // Reset Charts
@@ -350,7 +340,6 @@
                         forceChart.update();
 
                         targetCounts.fill(0); 
-                        distributionChart.update();
 
                         document.getElementById('punchTableBody').innerHTML = '';
 
