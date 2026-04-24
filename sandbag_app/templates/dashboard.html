@@ -286,7 +286,6 @@
             });
         }
 
-<<<<<<< HEAD
         function speakForce(force) {
             // Check if the browser supports speech synthesis
             if ('speechSynthesis' in window) {
@@ -301,8 +300,6 @@
             }
         }
 
-=======
->>>>>>> 9b8d5a08ffbddc0d0fd495bb0eac45dba9bc067e
         function registerPunch(gForce, hitDistanceY, targetZone, chartIndex) {
             let accel_ms2 = gForce * 9.81;
             let r_punch = CHAIN_LENGTH_M + hitDistanceY; 
@@ -311,11 +308,8 @@
             const FORCE_CALIBRATION_FACTOR = 0.35;
             let finalForce = Math.round(calculatedForce * FORCE_CALIBRATION_FACTOR);
             
-<<<<<<< HEAD
             speakForce(finalForce);
 
-=======
->>>>>>> 9b8d5a08ffbddc0d0fd495bb0eac45dba9bc067e
             punchCount++;
             punchCountDisplay.innerText = punchCount;
 
