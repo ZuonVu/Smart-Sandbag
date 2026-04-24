@@ -1,6 +1,15 @@
 <!DOCTYPE html>
+{% load static %}
 <html>
 <head>
+
+    <link rel="manifest" href="{% static 'manifest.json' %}">
+        
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="Sandbag">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3048/3048386.png">
+
     <title>Workout History</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -88,7 +97,7 @@
 
     {% if page_obj %}
     <div class="chart-card">
-        <h3 style="text-align: center; color: #666; margin-top: 0; font-size: 1.2rem;">Max Force Progress</h3>
+        <h3 style="text-align: center; color: #666; margin-top: 0; font-size: 1.2rem;">Average Force Progress</h3>
         <canvas id="progressChart"></canvas>
     </div>
     {% endif %}

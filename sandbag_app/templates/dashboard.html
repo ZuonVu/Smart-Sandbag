@@ -1,8 +1,16 @@
 <!DOCTYPE html>
+{% load static %}
 <html>
 <head>
-    <title>Smart Sandbag Dashboard</title>
+    <link rel="manifest" href="{% static 'manifest.json' %}">
+        
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="Sandbag">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3048/3048386.png">
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
     <style>
         body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
@@ -89,6 +97,20 @@
             <h3>Avg Force</h3>
             <p id="avgForceDisplay">0 N</p>
         </div>
+        
+        <h2 style="color: #333; margin-top: 40px; border-bottom: 2px solid #eee; padding-bottom: 10px;">🏆 Trophy Case</h2>
+    
+        <div style="display: flex; gap: 15px; overflow-x: auto; padding: 10px 0; margin-bottom: 30px;">
+            {% for badge in badges %}
+            <div style="background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); min-width: 120px; text-align: center; border: 1px solid #ffd700;">
+                <div style="font-size: 2.5rem; margin-bottom: 5px;">{{ badge.icon }}</div>
+                <div style="font-weight: bold; color: #333; font-size: 0.95rem;">{{ badge.name }}</div>
+                <div style="color: #888; font-size: 0.8rem; margin-top: 5px;">{{ badge.desc }}</div>
+            </div>
+            {% empty %}
+            <p style="color: #888; font-style: italic;">No badges earned yet. Start punching to unlock achievements!</p>
+            {% endfor %}
+        </div>
     </div>
 
     <div style="width: 100%; max-width: 800px; margin: 20px auto;">
@@ -100,7 +122,7 @@
             <tr>
                 <th>Time Recorded</th>
                 <th>Force (N)</th>
-                <th>Location</th>
+                <!-- <th>Location</th> -->
             </tr>
         </thead>
         <tbody id="punchTableBody">
@@ -305,7 +327,7 @@
             let r_punch = CHAIN_LENGTH_M + hitDistanceY; 
             
             let calculatedForce = (accel_ms2 * MOMENT_OF_INERTIA) / (r_punch * CHAIN_LENGTH_M);
-            const FORCE_CALIBRATION_FACTOR = 0.35;
+            const FORCE_CALIBRATION_FACTOR = 0.44;
             let finalForce = Math.round(calculatedForce * FORCE_CALIBRATION_FACTOR);
             
             speakForce(finalForce);
@@ -337,7 +359,7 @@
             forceChart.update(); 
 
             const tbody = document.getElementById('punchTableBody');
-            const newRow = `<tr><td>${timeNow}</td><td>${finalForce} N</td><td><b>${targetZone}</b></td></tr>`;
+            const newRow = `<tr><td>${timeNow}</td><td>${finalForce} N</td></tr>`;
             tbody.insertAdjacentHTML('afterbegin', newRow);
 
             const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;

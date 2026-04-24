@@ -1,0 +1,16 @@
+{
+  "name": "Smart Sandbag",
+  "short_name": "Sandbag",
+  "description": "Track your punch force and accuracy.",
+  "start_url": "/dashboard/",
+  "display": "standalone",
+  "background_color": "#f8f9fa",
+  "theme_color": "#007bff",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3048/3048386.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
