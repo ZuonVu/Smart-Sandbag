@@ -3,11 +3,17 @@
 <html>
 <head>
     <link rel="manifest" href="{% static 'manifest.json' %}">
-        
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="apple-mobile-web-app-title" content="Sandbag">
+
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3048/3048386.png">
+
+    <link rel="manifest" href="{% static 'manifest.json' %}">
+    <meta name="theme-color" content="#007bff">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="SmartPunch">
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -431,5 +437,14 @@
             }
         });
     </script>
+
+    <script>
+        if ('serviceWorker' in window.navigator) {
+            window.navigator.serviceWorker.register('/static/sw.js')
+            .then(() => console.log("Service Worker Registered!"))
+            .catch((err) => console.log("Service Worker Failed: ", err));
+        }
+    </script>
+
 </body>
 </html>
