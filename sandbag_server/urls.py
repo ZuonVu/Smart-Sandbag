@@ -14,6 +14,7 @@ urlpatterns = [
     # --- App URLs ---
     path('', views.dashboard, name='dashboard'),
     path('history/', views.history, name='history'),
+    path('export/<int:session_id>/', views.export_session_csv, name='export_csv'),
     path('record/', views.record_punch, name='record_punch'),
     path('start_session/', views.start_session, name='start_session'),
     path('end_session/', views.end_session, name='end_session'),

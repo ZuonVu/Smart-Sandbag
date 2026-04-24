@@ -12,22 +12,25 @@
         
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 20px;
+            /* CHANGED: Now repeats 5 times to fit the new Current Force card */
+            grid-template-columns: repeat(5, 1fr); 
+            gap: 15px; /* slightly reduced gap to fit 5 cards nicely */
             margin-bottom: 30px;
         }
         .card {
             background: #fff;
-            padding: 20px;
+            padding: 15px; /* slightly reduced padding to fit 5 cards */
             border-radius: 8px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
             text-align: center;
             border-bottom: 4px solid #ff6384; 
         }
-        .card h3 { margin: 0 0 10px 0; color: #666; font-size: 0.9rem; text-transform: uppercase; }
-        .card p { margin: 0; font-size: 1.8rem; font-weight: bold; color: #333; }
+        .card h3 { margin: 0 0 10px 0; color: #666; font-size: 0.85rem; text-transform: uppercase; }
+        .card p { margin: 0; font-size: 1.6rem; font-weight: bold; color: #333; }
         
         .chart-container { position: relative; height: 120px; width: 100%; display: flex; justify-content: center; }
+        
+        .header-controls { display: flex; align-items: center; gap: 15px; }
     </style>
 </head>
 <body>
@@ -46,8 +49,12 @@
             </form>
         </div>
 
-        <div>
-            <button id="startSessionBtn" style="background-color: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 1rem; margin-right: 10px;">
+        <div class="header-controls">
+            <div id="battery-status" style="font-weight: bold; color: #28a745; font-size: 1.1rem;">
+                🔋 <span id="battery-percent">--</span>%
+            </div>
+            
+            <button id="startSessionBtn" style="background-color: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 1rem;">
                 ⏱️ Start Session
             </button>
             <button id="connectBtn" style="background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 1rem;">
@@ -70,15 +77,17 @@
             <h3>Total Punches</h3>
             <p id="punchCountDisplay">{{ stats.total_punches|default:"0" }}</p>
         </div>
+        <div class="card" style="border-bottom-color: #ff9f40;">
+            <h3>Current Force</h3>
+            <p id="currentForceDisplay">0 N</p>
+        </div>
         <div class="card">
             <h3>Max Force</h3>
             <p id="maxForceDisplay">{{ stats.max_force|default:"0" }} N</p>
         </div>
         <div class="card" style="border-bottom-color: #36a2eb;">
-            <h3>Shot Distribution</h3>
-            <div class="chart-container">
-                <canvas id="distributionChart"></canvas>
-            </div>
+            <h3>Avg Force</h3>
+            <p id="avgForceDisplay">0 N</p>
         </div>
     </div>
 
@@ -95,7 +104,7 @@
             </tr>
         </thead>
         <tbody id="punchTableBody">
-            </tbody>
+        </tbody>
     </table>
 
     <script>
@@ -104,7 +113,9 @@
         const startSessionBtn = document.getElementById('startSessionBtn');
         
         const punchCountDisplay = document.getElementById('punchCountDisplay');
+        const currentForceDisplay = document.getElementById('currentForceDisplay'); // NEW: Current Force UI
         const maxForceDisplay = document.getElementById('maxForceDisplay');
+        const avgForceDisplay = document.getElementById('avgForceDisplay');
         const timerDisplay = document.getElementById('timerDisplay');
         
         // --- STATE VARIABLES ---
@@ -117,21 +128,15 @@
         
         let punchCount = 0;
         let maxForce = 0;
+        let totalForceSum = 0; 
         
-        // Array to track punches per target [Target 1, Target 2, ... Target 6]
-        let targetCounts = [0, 0, 0, 0, 0, 0];
-        let latestMicPeaks = [0, 0, 0, 0, 0, 0];
+        let targetCounts = [0, 0, 0];
+        let latestMicPeaks = [0, 0]; 
 
         // --- PHYSICS CONSTANTS ---
         const BAG_MASS_KG = parseFloat("{{ profile.bag_mass|default:'30.0' }}");       
         const CHAIN_LENGTH_M = parseFloat("{{ profile.chain_length|default:'0.5' }}");     
         const BAG_LENGTH_M = parseFloat("{{ profile.bag_length|default:'1.0' }}");       
-
-        let MIC_DISTANCES_M = [];
-        const segment = BAG_LENGTH_M / 7.0;
-        for (let i = 1; i <= 6; i++) {
-            MIC_DISTANCES_M.push(segment * i);
-        }
 
         const term1 = Math.pow(BAG_LENGTH_M, 2) / 12.0;
         const term2 = Math.pow(CHAIN_LENGTH_M + (BAG_LENGTH_M / 2.0), 2);
@@ -141,34 +146,39 @@
         const forceCtx = document.getElementById('forceChart');
         const forceChart = new Chart(forceCtx, {
             type: 'line',
-            data: { labels: [], datasets: [{ label: 'Punch Force (N)', data: [], borderWidth: 2, borderColor: '#ff6384', backgroundColor: '#ff6384', tension: 0.1 }] },
-            options: { scales: { y: { beginAtZero: true } } }
-        });
-
-        // NEW: Distribution Chart Setup
-        const distCtx = document.getElementById('distributionChart');
-        const distributionChart = new Chart(distCtx, {
-            type: 'doughnut', 
             data: {
-                labels: ['Target 1', 'Target 2', 'Target 3', 'Target 4', 'Target 5', 'Target 6'],
+                labels: [], // (Keep whatever you already have here)
                 datasets: [{
-                    data: targetCounts,
-                    backgroundColor: [
-                        '#ff6384', // Red
-                        '#ff9f40', // Orange
-                        '#ffcd56', // Yellow
-                        '#4bc0c0', // Teal
-                        '#36a2eb', // Blue
-                        '#9966ff'  // Purple
-                    ],
-                    borderWidth: 1
+                    label: 'Punch Force (N)',
+                    data: [], // (Keep whatever you already have here)
+                    
+                    // 👇 ADD THESE STYLING OPTIONS 👇
+                    borderColor: 'rgba(255, 99, 132, 1)',     // Red line
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)', // Red fill
+                    borderWidth: 3,
+                    tension: 0.3,  // This makes the line curved instead of jagged!
+                    fill: true     // This shades the background under the line!
                 }]
             },
-            options: { 
-                responsive: true, 
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false } // Hide legend to fit in the small card
+            options: {
+                responsive: true,
+                scales: {
+                    // 👇 ADD THESE AXIS LABELS 👇
+                    x: {
+                        title: { 
+                            display: true, 
+                            text: 'Punch Sequence / Time', 
+                            font: { weight: 'bold' } 
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        title: { 
+                            display: true, 
+                            text: 'Impact Force (Newtons)', 
+                            font: { weight: 'bold' } 
+                        }
+                    }
                 }
             }
         });
@@ -179,14 +189,20 @@
         const CHAR_Y_UUID = "19b10002-e8f2-537e-4f6c-d104768a1214";
         const CHAR_Z_UUID = "19b10003-e8f2-537e-4f6c-d104768a1214";
         const CHAR_MIC_UUID = "19b10004-e8f2-537e-4f6c-d104768a1214";
+        
+        // Standard BLE Battery Service
+        const BATTERY_SERVICE_UUID = 0x180f; 
+        const BATTERY_LEVEL_CHAR_UUID = 0x2a19; 
 
         connectButton.addEventListener('click', async function() {
             try {
                 const device = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'Sandbag' }],
-                    optionalServices: [SERVICE_UUID] 
+                    optionalServices: [SERVICE_UUID, BATTERY_SERVICE_UUID] 
                 });
                 const server = await device.gatt.connect();
+                
+                // --- 1. CONNECT IMU & MICS ---
                 const service = await server.getPrimaryService(SERVICE_UUID);
                 
                 await setupNotification(await service.getCharacteristic(CHAR_X_UUID), 'X');
@@ -197,10 +213,29 @@
                 await micChar.startNotifications();
                 micChar.addEventListener('characteristicvaluechanged', (event) => {
                     let dataView = event.target.value;
-                    for (let i = 0; i < 6; i++) {
-                        latestMicPeaks[i] = dataView.getInt16(i * 2, true); 
-                    }
+                    latestMicPeaks[0] = dataView.getInt16(0, true); 
+                    latestMicPeaks[1] = dataView.getInt16(2, true); 
                 });
+                
+                // --- 2. CONNECT BATTERY SERVICE ---
+                try {
+                    const batteryService = await server.getPrimaryService(BATTERY_SERVICE_UUID);
+                    const batteryChar = await batteryService.getCharacteristic(BATTERY_LEVEL_CHAR_UUID);
+                    
+                    await batteryChar.startNotifications();
+                    batteryChar.addEventListener('characteristicvaluechanged', (event) => {
+                        let pct = event.target.value.getUint8(0);
+                        document.getElementById('battery-percent').innerText = pct;
+                        
+                        if (pct <= 20) {
+                            document.getElementById('battery-status').style.color = '#dc3545';
+                        } else {
+                            document.getElementById('battery-status').style.color = '#28a745';
+                        }
+                    });
+                } catch (e) {
+                    console.log("Battery service not found on device.", e);
+                }
 
                 connectButton.innerText = "🟢 Connected!";
                 connectButton.style.backgroundColor = "green";
@@ -212,58 +247,86 @@
             characteristic.addEventListener('characteristicvaluechanged', (event) => {
                 const rawInt = event.target.value.getInt32(0, true);
                 const realAccel = rawInt / 100.0;
-
+ 
                 if (axisLabel === 'X') currentX = realAccel;
                 if (axisLabel === 'Y') currentY = realAccel;
                 if (axisLabel === 'Z') currentZ = realAccel;
 
                 let totalG = Math.sqrt(currentX**2 + currentY**2 + currentZ**2);
+                
+                let topMic = latestMicPeaks[0];
+                let bottomMic = latestMicPeaks[1] ; 
 
-                if (totalG > 2.5 && !isPunching) {
+                if (totalG > 1.6 && !isPunching && (topMic > 100 || bottomMic > 100)) {
                     isPunching = true; 
                     
-                    let maxVol = 0;
-                    let loudestIndex = 2; // default
+                    let targetZone = "Center Punch";
+                    let chartIndex = 1; 
+                    let hitDistanceY = BAG_LENGTH_M / 2.0; 
+                    
+                    console.log(`Punch! Top Mic: ${topMic} | Bottom Mic: ${bottomMic}`);
 
-                    for (let i = 0; i < 6; i++) {
-                        if (latestMicPeaks[i] > maxVol) {
-                            maxVol = latestMicPeaks[i];
-                            loudestIndex = i;
-                        }
+                    if (Math.abs(topMic - bottomMic) <= 1) { 
+                        targetZone = "Center Punch";
+                        chartIndex = 1;
+                    } else if (topMic > bottomMic) {
+                        targetZone = "High Punch";
+                        chartIndex = 0;
+                        hitDistanceY = BAG_LENGTH_M * 0.25; 
+                    } else if (bottomMic > topMic) {
+                        targetZone = "Low Punch";
+                        chartIndex = 2;
+                        hitDistanceY = BAG_LENGTH_M * 0.75; 
                     }
                     
-                    // Specific Target Zone Mapping
-                    let targetZone = `Target ${loudestIndex + 1}`;
-                    let hitDistanceY = MIC_DISTANCES_M[loudestIndex]; 
+                    registerPunch(totalG, hitDistanceY, targetZone, chartIndex);
                     
-                    registerPunch(totalG, hitDistanceY, targetZone, loudestIndex);
-                    setTimeout(() => { isPunching = false; }, 500);
+                    setTimeout(() => { isPunching = false; }, 700); 
                 }
             });
         }
 
-        function registerPunch(gForce, hitDistanceY, targetZone, index) {
+        function speakForce(force) {
+            // Check if the browser supports speech synthesis
+            if ('speechSynthesis' in window) {
+                // Round the force so it doesn't say "450 point 3 2 1 Newtons"
+                let roundedForce = Math.round(force);
+                let msg = new SpeechSynthesisUtterance(roundedForce + " Newtons!");
+                
+                // Optional: Make it sound energetic by increasing the rate slightly
+                msg.rate = 1.2; 
+                
+                window.speechSynthesis.speak(msg);
+            }
+        }
+
+        function registerPunch(gForce, hitDistanceY, targetZone, chartIndex) {
             let accel_ms2 = gForce * 9.81;
             let r_punch = CHAIN_LENGTH_M + hitDistanceY; 
             
-            // Updated Math Logic: Ensured denominator is grouped correctly
             let calculatedForce = (accel_ms2 * MOMENT_OF_INERTIA) / (r_punch * CHAIN_LENGTH_M);
-            let finalForce = Math.round(calculatedForce);
+            const FORCE_CALIBRATION_FACTOR = 0.35;
+            let finalForce = Math.round(calculatedForce * FORCE_CALIBRATION_FACTOR);
             
-            // Update UI Counters
+            speakForce(finalForce);
+
             punchCount++;
             punchCountDisplay.innerText = punchCount;
+
+            // NEW: Update Current Force display instantly
+            currentForceDisplay.innerText = `${finalForce} N`;
+
+            totalForceSum += finalForce;
+            let avgForce = Math.round(totalForceSum / punchCount);
+            avgForceDisplay.innerText = `${avgForce} N`;
 
             if (finalForce > maxForce) {
                 maxForce = finalForce;
                 maxForceDisplay.innerText = `${maxForce} N`;
             }
 
-            // Update Target Distribution Chart
-            targetCounts[index]++;
-            distributionChart.update();
+            targetCounts[chartIndex]++;
 
-            // Line Chart Update
             let timeNow = new Date().toLocaleTimeString();
             forceChart.data.labels.push(timeNow);
             forceChart.data.datasets[0].data.push(finalForce);
@@ -273,17 +336,15 @@
             }
             forceChart.update(); 
 
-            // Add to Table
             const tbody = document.getElementById('punchTableBody');
             const newRow = `<tr><td>${timeNow}</td><td>${finalForce} N</td><td><b>${targetZone}</b></td></tr>`;
             tbody.insertAdjacentHTML('afterbegin', newRow);
 
-            // Save to Django
             const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
             fetch('/record/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-                body: JSON.stringify({ force: finalForce, location: targetZone }) // Sends "Target 1", "Target 2", etc.
+                body: JSON.stringify({ force: finalForce, location: targetZone })
             }).catch(error => console.error("❌ Failed to save:", error));
         }
 
@@ -303,23 +364,24 @@
                         startSessionBtn.innerText = "🛑 End Session";
                         startSessionBtn.style.backgroundColor = "#dc3545"; 
                         
-                        // Reset all metrics
                         secondsElapsed = 0;
                         punchCount = 0;
                         maxForce = 0;
+                        totalForceSum = 0; 
+
                         punchCountDisplay.innerText = "0";
+                        currentForceDisplay.innerText = "0 N"; // NEW: Reset Current Force
                         maxForceDisplay.innerText = "0 N";
+                        avgForceDisplay.innerText = "0 N"; 
                         timerDisplay.innerText = "00:00";
                         
-                        // Reset Charts
                         forceChart.data.labels = [];
                         forceChart.data.datasets[0].data = [];
                         forceChart.update();
 
-                        targetCounts.fill(0); // Reset Target 1-6 array to zeros
-                        distributionChart.update();
+                        targetCounts.fill(0); 
 
-                        document.getElementById('punchTableBody').innerHTML = ''; // Clear table
+                        document.getElementById('punchTableBody').innerHTML = '';
 
                         timerInterval = setInterval(() => {
                             secondsElapsed++;

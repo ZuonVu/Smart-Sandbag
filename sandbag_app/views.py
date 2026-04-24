@@ -1,3 +1,9 @@
+
+import csv
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
+from .models import Session, Punch
+
 from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -11,6 +17,7 @@ from django.contrib.auth import login
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_POST
 from django.core.paginator import Paginator 
+
 
 @csrf_exempt
 def start_session(request):
@@ -100,25 +107,6 @@ def dashboard(request):
     }
     return render(request, 'dashboard.html', context)
 
-@login_required(login_url='login')
-def history(request):
-    user = request.user
-    sessions = Session.objects.filter(user=user).annotate(
-        total_punches=Count('punches'),
-        max_force=Max('punches__force')
-    ).order_by('-id')
-
-    # Calculate the most frequently hit target for each session
-    for session in sessions:
-        # Groups punches by location, counts them, and grabs the highest one
-        top_target = session.punches.values('location').annotate(count=Count('id')).order_by('-count').first()
-        
-        if top_target:
-            session.favorite_target = top_target['location']
-        else:
-            session.favorite_target = "None"
-
-    return render(request, 'history.html', {'sessions': sessions})
 
 @login_required(login_url='login')
 def settings(request):
@@ -180,3 +168,35 @@ def history(request):
     page_obj = paginator.get_page(page_number)
 
     return render(request, 'history.html', {'page_obj': page_obj})
+
+def export_session_csv(request, session_id):
+    # 1. Grab the specific session from the database (returns a 404 error if it doesn't exist)
+    session = get_object_or_404(Session, id=session_id)
+    
+    # 2. Tell the browser to expect a CSV file download, not a webpage
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="smart_sandbag_session_{session_id}.csv"'
+    
+    # 3. Create the CSV writer object
+    writer = csv.writer(response)
+    
+    # 4. Write the top Header Row
+    writer.writerow(['Punch Number', 'Time Recorded', 'Force (Newtons)', 'Location'])
+    
+    # 5. Get all punches tied to this specific session, ordered by time
+    # (Assuming your Punch model has a foreign key called 'session' and a time field called 'timestamp')
+    punches = Punch.objects.filter(session=session).order_by('timestamp')
+    
+    # 6. Loop through the punches and write each one as a new row
+    for index, punch in enumerate(punches, start=1):
+        # Format the time so it looks nice in Excel
+        time_str = punch.timestamp.strftime("%Y-%m-%d %H:%M:%S") if punch.timestamp else "N/A"
+        
+        writer.writerow([
+            index, 
+            time_str, 
+            punch.force, 
+            punch.location # Match this to whatever you named your zone/location field!
+        ])
+        
+    return response
